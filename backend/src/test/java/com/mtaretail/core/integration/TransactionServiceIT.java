@@ -1,0 +1,151 @@
+package com.mtaretail.core.integration;
+
+import com.mtaretail.core.domain.AuditLog;
+import com.mtaretail.core.domain.TxnStatus;
+import com.mtaretail.core.domain.TxnTransaction;
+import com.mtaretail.core.domain.TxnType;
+import com.mtaretail.core.exception.NotFoundException;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Money movement rules, proven against real MySQL.
+ *
+ * <p>Each test here covers a claim that would be unverifiable with an
+ * in-memory database, because the guarantee lives in the database itself.
+ */
+@DisplayName("Transaction posting against real MySQL")
+class TransactionServiceIT extends AbstractTransactionIT {
+
+    @Test
+    @DisplayName("credit moves the balance up and settles the transaction")
+    void creditSettlesAndMovesBalance() {
+        long before = balance();
+
+        TxnTransaction txn = transactionService.post(
+                TxnType.CASH_IN, ACCOUNT, OUTLET, 250_000L, 0L, uniqueKey("credit"), actor);
+
+        assertEquals(TxnStatus.SETTLED, txn.getStatus());
+        assertEquals(before + 250_000L, balance());
+        assertTrue(txn.getTxnRef().startsWith("TXN-"));
+    }
+
+    @Test
+    @DisplayName("the fee is netted off a credit payout")
+    void feeIsAppliedInAdditionToAmount() {
+        long before = balance();
+
+        transactionService.post(TxnType.CASH_IN, ACCOUNT, OUTLET, 100_000L, 5_000L,
+                uniqueKey("fee"), actor);
+
+        assertEquals(before + 100_000L - 5_000L, balance(),
+                "customer receives amount minus fee");
+    }
+
+    @Test
+    @DisplayName("replaying an idempotency key resolves to the original transaction")
+    void idempotentReplayMovesMoneyOnce() {
+        String key = uniqueKey("idem");
+        long before = balance();
+
+        TxnTransaction first = transactionService.post(
+                TxnType.CASH_IN, ACCOUNT, OUTLET, 77_000L, 0L, key, actor);
+        TxnTransaction replay = transactionService.post(
+                TxnType.CASH_IN, ACCOUNT, OUTLET, 77_000L, 0L, key, actor);
+
+        assertEquals(first.getTxnRef(), replay.getTxnRef(),
+                "a retry must resolve to the original transaction");
+        assertEquals(before + 77_000L, balance(),
+                "a retry must not move money a second time");
+    }
+
+    @Test
+    @DisplayName("distinct keys are not collapsed together")
+    void distinctKeysCreateDistinctTransactions() {
+        long before = balance();
+
+        transactionService.post(TxnType.CASH_IN, ACCOUNT, OUTLET, 1_000L, 0L, uniqueKey("k1"), actor);
+        transactionService.post(TxnType.CASH_IN, ACCOUNT, OUTLET, 1_000L, 0L, uniqueKey("k2"), actor);
+
+        assertEquals(before + 2_000L, balance());
+    }
+
+    @Test
+    @DisplayName("a refused debit leaves no partial state behind")
+    void overdraftIsRefusedAndLeavesNoTrace() {
+        long before = balance();
+        long rowsBefore = txnRepository.count();
+
+        assertThrows(IllegalStateException.class, () -> transactionService.post(
+                TxnType.CASH_OUT, ACCOUNT, OUTLET, before + 1L, 0L, uniqueKey("overdraft"), actor));
+
+        assertEquals(before, balance(), "balance must be untouched after a refused debit");
+        assertEquals(rowsBefore, txnRepository.count(),
+                "the rolled-back transaction must not leave a ledger row");
+    }
+
+    @Test
+    @DisplayName("the fee counts toward affordability")
+    void feeCanTipABalanceIntoOverdraft() {
+        long before = balance();
+
+        assertThrows(IllegalStateException.class, () -> transactionService.post(
+                TxnType.CASH_OUT, ACCOUNT, OUTLET, before, 1L, uniqueKey("fee-tip"), actor));
+
+        assertEquals(before, balance());
+    }
+
+    @Test
+    @DisplayName("unknown account or outlet is rejected")
+    void unknownReferencesFail() {
+        assertThrows(NotFoundException.class, () -> transactionService.post(
+                TxnType.CASH_IN, "NO-SUCH-ACCOUNT", OUTLET, 1_000L, 0L, uniqueKey("nf-acc"), actor));
+
+        assertThrows(NotFoundException.class, () -> transactionService.post(
+                TxnType.CASH_IN, ACCOUNT, "NO-SUCH-OUTLET", 1_000L, 0L, uniqueKey("nf-out"), actor));
+    }
+
+    @Test
+    @DisplayName("settlement is written to the audit trail")
+    void settlementIsAudited() {
+        TxnTransaction txn = transactionService.post(
+                TxnType.CASH_IN, ACCOUNT, OUTLET, 1_234L, 0L, uniqueKey("audit"), actor);
+
+        List<AuditLog> history = auditService.historyFor("Transaction", txn.getTxnRef());
+        assertTrue(history.stream()
+                        .anyMatch(entry -> "TXN_SETTLED".equals(entry.getAction())),
+                "expected a TXN_SETTLED audit entry for " + txn.getTxnRef()
+                        + " but found " + history.stream().map(AuditLog::getAction).toList());
+    }
+
+    @Test
+    @DisplayName("settlement appears in the reconciliation feed")
+    void settledWindowFeedIncludesTheTransaction() {
+        TxnTransaction txn = transactionService.post(
+                TxnType.PAYMENT, ACCOUNT, OUTLET, 2_000L, 100L, uniqueKey("window"), actor);
+
+        List<TxnTransaction> window = transactionService.settledBetween(
+                Instant.now().minusSeconds(60), Instant.now().plusSeconds(60), 100);
+
+        assertTrue(window.stream().anyMatch(t -> t.getTxnRef().equals(txn.getTxnRef())),
+                "the settled feed must include the transaction just posted");
+    }
+
+    @Test
+    @DisplayName("a settled transaction can no longer be failed")
+    void failedTransactionKeepsItsReason() {
+        TxnTransaction txn = transactionService.post(
+                TxnType.CASH_IN, ACCOUNT, OUTLET, 500L, 0L, uniqueKey("fail"), actor);
+
+        assertThrows(IllegalStateException.class,
+                () -> transactionService.markFailed(txn.getTxnRef(), "partner timeout", actor),
+                "settling is final; a late failure must be refused");
+    }
+}

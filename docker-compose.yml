@@ -1,0 +1,94 @@
+# Local development stack.
+#
+# The core service owns the ledger; the reconciliation service is a read-only
+# consumer that pulls settled transactions and compares them to a partner
+# statement. Neither shares a database with the other.
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: rf-mysql
+    environment:
+      MYSQL_DATABASE: retail_finance
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
+      MYSQL_ROOT_PASSWORD: root-dev-only
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uapp", "-papp"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: rf-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: rf-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: app
+      RABBITMQ_DEFAULT_PASS: app
+    ports:
+      - "5672:5672"
+      - "15672:15672"   # management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  core:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rf-core
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: retail_finance
+      DB_USER: app
+      DB_PASSWORD: app
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: app
+      RABBITMQ_PASSWORD: app
+      # Override in any real environment.
+      JWT_SECRET: ${JWT_SECRET:-local-dev-only-secret-change-me-in-production-0123456789}
+      SEED_ENABLED: "true"
+    ports:
+      - "8080:8080"
+
+  reconciliation:
+    build:
+      context: ./reconciliation-service
+      dockerfile: Dockerfile
+    container_name: rf-reconciliation
+    depends_on:
+      - core
+    environment:
+      CORE_BASE_URL: http://core:8080
+      CORE_SERVICE_TOKEN: ${CORE_SERVICE_TOKEN:-}
+    ports:
+      - "8000:8000"
+
+volumes:
+  mysql-data:
