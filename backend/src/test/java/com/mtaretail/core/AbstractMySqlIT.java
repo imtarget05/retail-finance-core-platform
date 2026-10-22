@@ -16,15 +16,17 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * constraints, optimistic locking, transactional rollback - is enforced by
  * MySQL itself. H2 would happily pass tests that fail in production.
  */
-@Testcontainers
 public abstract class AbstractMySqlIT {
 
-    @Container
-    @SuppressWarnings("resource")
-    public static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
-            .withDatabaseName("retail_finance")
-            .withUsername("test")
-            .withPassword("test");
+    public static final MySQLContainer<?> MYSQL;
+
+    static {
+        MYSQL = new MySQLContainer<>("mysql:8.0")
+                .withDatabaseName("retail_finance")
+                .withUsername("test")
+                .withPassword("test");
+        MYSQL.start();
+    }
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
