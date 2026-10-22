@@ -14,6 +14,9 @@ jobs:
   unit:
     name: Unit tests (no database)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     # Deliberately no MySQL service: these tests must stay hermetic, so the
     # money arithmetic can be exercised on every push in seconds.
     steps:
@@ -34,6 +37,9 @@ jobs:
   integration:
     name: Integration tests (real MySQL 8)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     # Testcontainers starts MySQL itself, so the runner only needs Docker,
     # which ubuntu-latest already provides.
     steps:
