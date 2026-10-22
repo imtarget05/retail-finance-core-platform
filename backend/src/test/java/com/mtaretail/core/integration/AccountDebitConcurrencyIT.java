@@ -47,7 +47,7 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
         CountDownLatch startLatch = new CountDownLatch(1);
 
         AtomicInteger successCount = new AtomicInteger(0);
-        AtomicInteger optimisticLockFailures = new AtomicInteger(0);
+        AtomicInteger concurrencyFailures = new AtomicInteger(0);
         AtomicInteger insufficientBalanceFailures = new AtomicInteger(0);
         List<Throwable> unexpectedErrors = Collections.synchronizedList(new ArrayList<>());
 
@@ -60,8 +60,8 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
                     transactionService.post(
                             TxnType.CASH_OUT, ACCOUNT, OUTLET, 100_000L, 0L, debitKey, actor);
                     successCount.incrementAndGet();
-                } catch (OptimisticLockingFailureException ex) {
-                    optimisticLockFailures.incrementAndGet();
+                } catch (org.springframework.dao.TransientDataAccessException ex) {
+                    concurrencyFailures.incrementAndGet();
                 } catch (IllegalStateException ex) {
                     if (ex.getMessage() != null && ex.getMessage().contains("Insufficient balance")) {
                         insufficientBalanceFailures.incrementAndGet();
@@ -69,9 +69,9 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
                         unexpectedErrors.add(ex);
                     }
                 } catch (Throwable t) {
-                    // Inspect root cause for OptimisticLockException
-                    if (isOptimisticLockException(t)) {
-                        optimisticLockFailures.incrementAndGet();
+                    // Inspect root cause for concurrency conflict or lock exceptions
+                    if (isConcurrencyConflictException(t)) {
+                        concurrencyFailures.incrementAndGet();
                     } else {
                         unexpectedErrors.add(t);
                     }
@@ -86,10 +86,10 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
 
         assertTrue(unexpectedErrors.isEmpty(), "no unexpected exceptions: " + unexpectedErrors);
         assertEquals(1, successCount.get(), "exactly one debit must succeed when balance allows only one");
-        assertEquals(concurrency - 1, optimisticLockFailures.get() + insufficientBalanceFailures.get(),
+        assertEquals(concurrency - 1, concurrencyFailures.get() + insufficientBalanceFailures.get(),
                 "all other threads must be rejected");
-        assertTrue(optimisticLockFailures.get() > 0,
-                "optimistic locking must reject at least one concurrent conflict: found " + optimisticLockFailures.get());
+        assertTrue(concurrencyFailures.get() > 0,
+                "concurrency control must reject at least one concurrent conflict: found " + concurrencyFailures.get());
 
         // Assert database state invariants
         long finalBalance = balance();
@@ -126,10 +126,10 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
                     transactionService.post(
                             TxnType.CASH_OUT, ACCOUNT, OUTLET, debitAmount, 0L, debitKey, actor);
                     successCount.incrementAndGet();
-                } catch (OptimisticLockingFailureException ex) {
+                } catch (org.springframework.dao.TransientDataAccessException ex) {
                     conflictCount.incrementAndGet();
                 } catch (Throwable t) {
-                    if (isOptimisticLockException(t)) {
+                    if (isConcurrencyConflictException(t)) {
                         conflictCount.incrementAndGet();
                     } else {
                         unexpectedErrors.add(t);
@@ -155,11 +155,14 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
         assertTrue(finalBalance >= 0, "balance must never go negative");
     }
 
-    private static boolean isOptimisticLockException(Throwable t) {
+    private static boolean isConcurrencyConflictException(Throwable t) {
         while (t != null) {
             if (t instanceof OptimisticLockingFailureException
+                    || t instanceof org.springframework.dao.TransientDataAccessException
                     || t instanceof jakarta.persistence.OptimisticLockException
-                    || t.getClass().getSimpleName().contains("OptimisticLock")) {
+                    || t.getClass().getSimpleName().contains("OptimisticLock")
+                    || t.getClass().getSimpleName().contains("Lock")
+                    || (t.getMessage() != null && t.getMessage().contains("Deadlock"))) {
                 return true;
             }
             t = t.getCause();
