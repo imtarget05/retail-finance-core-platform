@@ -4,6 +4,7 @@ import com.mtaretail.core.domain.Account;
 import com.mtaretail.core.domain.TxnStatus;
 import com.mtaretail.core.domain.TxnTransaction;
 import com.mtaretail.core.domain.TxnType;
+import com.mtaretail.core.service.TransactionService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -35,10 +36,14 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
     @Test
     @DisplayName("competing debits for the last unit: exactly one succeeds and optimistic lock fails the rest")
     void concurrentDebitsCompetingForLastUnit_exactlyOneSucceeds() throws Exception {
+        String testAccount = "COMP-ACC-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+        accountRepository.save(new Account(
+                testAccount, "Compete Customer", TransactionService.hashIdNumber("ID-" + testAccount)));
+
         // Seed account with exactly 100,000 VND
-        transactionService.post(TxnType.CASH_IN, ACCOUNT, OUTLET, 100_000L, 0L,
+        transactionService.post(TxnType.CASH_IN, testAccount, OUTLET, 100_000L, 0L,
                 uniqueKey("compete-seed"), actor);
-        long startingBalance = balance();
+        long startingBalance = accountRepository.findByAccountNo(testAccount).orElseThrow().getBalance();
         assertEquals(100_000L, startingBalance, "initial balance must be 100,000");
 
         int concurrency = 8;
@@ -58,7 +63,7 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
                 try {
                     startLatch.await();
                     transactionService.post(
-                            TxnType.CASH_OUT, ACCOUNT, OUTLET, 100_000L, 0L, debitKey, actor);
+                            TxnType.CASH_OUT, testAccount, OUTLET, 100_000L, 0L, debitKey, actor);
                     successCount.incrementAndGet();
                 } catch (org.springframework.dao.TransientDataAccessException ex) {
                     concurrencyFailures.incrementAndGet();
@@ -92,20 +97,24 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
                 "concurrency control must reject at least one concurrent conflict: found " + concurrencyFailures.get());
 
         // Assert database state invariants
-        long finalBalance = balance();
+        long finalBalance = accountRepository.findByAccountNo(testAccount).orElseThrow().getBalance();
         assertEquals(0L, finalBalance, "final balance must be exactly 0 (no overdraft, no lost update)");
 
-        Account account = accountRepository.findByAccountNo(ACCOUNT).orElseThrow();
+        Account account = accountRepository.findByAccountNo(testAccount).orElseThrow();
         assertTrue(account.getVersion() > 0, "account @Version must have advanced");
     }
 
     @Test
     @DisplayName("concurrent debits with sufficient balance: no lost updates and balance strictly matches settlements")
     void concurrentDebits_noLostUpdates() throws Exception {
+        String testAccount = "MULTI-ACC-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+        accountRepository.save(new Account(
+                testAccount, "Multi Customer", TransactionService.hashIdNumber("ID-" + testAccount)));
+
         // Seed account with 500,000 VND
-        transactionService.post(TxnType.CASH_IN, ACCOUNT, OUTLET, 500_000L, 0L,
+        transactionService.post(TxnType.CASH_IN, testAccount, OUTLET, 500_000L, 0L,
                 uniqueKey("multi-seed"), actor);
-        long startingBalance = balance();
+        long startingBalance = accountRepository.findByAccountNo(testAccount).orElseThrow().getBalance();
 
         int concurrency = 10;
         long debitAmount = 50_000L; // 10 x 50,000 = 500,000 maximum possible debits
@@ -124,7 +133,7 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
                 try {
                     startLatch.await();
                     transactionService.post(
-                            TxnType.CASH_OUT, ACCOUNT, OUTLET, debitAmount, 0L, debitKey, actor);
+                            TxnType.CASH_OUT, testAccount, OUTLET, debitAmount, 0L, debitKey, actor);
                     successCount.incrementAndGet();
                 } catch (org.springframework.dao.TransientDataAccessException ex) {
                     conflictCount.incrementAndGet();
@@ -148,7 +157,7 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
                 "every thread must either succeed or register a concurrency conflict");
 
         // Mathematical invariant: Final Balance = Starting Balance - (successCount * debitAmount)
-        long finalBalance = balance();
+        long finalBalance = accountRepository.findByAccountNo(testAccount).orElseThrow().getBalance();
         long expectedBalance = startingBalance - (successCount.get() * debitAmount);
         assertEquals(expectedBalance, finalBalance,
                 "balance must exactly reflect settled debits with zero lost updates");
