@@ -40,6 +40,13 @@ public class AuditService {
         auditLogRepository.saveAndFlush(entry(auth, action, targetType, targetId, detail));
     }
 
+    /** Account opening audit joins the account and opening movement transaction. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordWithAccountOpening(Authentication auth, String action,
+                                         String targetType, String targetId, String detail) {
+        auditLogRepository.saveAndFlush(entry(auth, action, targetType, targetId, detail));
+    }
+
     private AuditLog entry(Authentication auth, String action,
                            String targetType, String targetId, String detail) {
         if (auth == null || !auth.isAuthenticated()) {
