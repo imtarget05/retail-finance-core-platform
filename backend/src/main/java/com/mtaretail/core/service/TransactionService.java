@@ -97,7 +97,7 @@ public class TransactionService {
         Outlet outlet = outletRepository.findByCode(outletCode)
                 .orElseThrow(() -> new NotFoundException("Outlet not found: " + outletCode));
 
-        long totalDebit = amount + fee;
+        long totalDebit = Math.addExact(amount, fee);
         if (!type.isCredit() && account.getBalance() < totalDebit) {
             throw new IllegalStateException("Insufficient balance: account %s has %d, needs %d"
                     .formatted(accountNo, account.getBalance(), totalDebit));
