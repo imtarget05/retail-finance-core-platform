@@ -93,12 +93,10 @@ public class TransactionService {
             return acceptReplay(replay, type, accountNo, outletCode, amount, fee, actor);
         }
 
+        TxnTransaction posted;
         try {
-            TxnTransaction posted = postingTransaction.execute(status ->
+            posted = postingTransaction.execute(status ->
                     postNew(type, accountNo, outletCode, amount, fee, effectiveKey));
-            auditService.record(actor, "TXN_SETTLED", "Transaction", posted.getTxnRef(),
-                    "type=%s amount=%d fee=%d".formatted(type, amount, fee));
-            return posted;
         } catch (DataIntegrityViolationException ex) {
             // The failed insert's transaction has rolled back. The winner is
             // now read in a fresh transaction, never in a rollback-only scope.
@@ -108,6 +106,9 @@ public class TransactionService {
             }
             return acceptReplay(winner, type, accountNo, outletCode, amount, fee, actor);
         }
+        auditService.record(actor, "TXN_SETTLED", "Transaction", posted.getTxnRef(),
+                "type=%s amount=%d fee=%d".formatted(type, amount, fee));
+        return posted;
     }
 
     private TxnTransaction acceptReplay(TxnTransaction replay, TxnType type,
