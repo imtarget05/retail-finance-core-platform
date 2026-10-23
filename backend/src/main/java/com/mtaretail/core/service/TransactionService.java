@@ -2,6 +2,7 @@ package com.mtaretail.core.service;
 
 import com.mtaretail.core.domain.*;
 import com.mtaretail.core.exception.NotFoundException;
+import com.mtaretail.core.exception.IdempotencyConflictException;
 import com.mtaretail.core.repository.AccountRepository;
 import com.mtaretail.core.repository.OutletRepository;
 import com.mtaretail.core.repository.TxnTransactionRepository;
@@ -13,6 +14,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -29,9 +32,8 @@ import java.util.concurrent.ThreadLocalRandom;
  *
  * <p>Two correctness properties are load-bearing:
  * <ul>
- *   <li><b>Exactly-once effect</b> - the {@code idempotency_key} unique index
- *       turns a retry into a read of the original transaction instead of a
- *       second debit.</li>
+ *   <li><b>One effect per key</b> - the {@code idempotency_key} unique index
+ *       prevents a second ledger row; replay validates the original payload.</li>
  *   <li><b>No lost updates</b> - the account row is guarded by optimistic
  *       locking ({@code @Version}), so two concurrent debits cannot both read
  *       the same balance and overwrite each other.</li>
@@ -47,15 +49,19 @@ public class TransactionService {
     private final AccountRepository accountRepository;
     private final OutletRepository outletRepository;
     private final AuditService auditService;
+    private final TransactionTemplate postingTransaction;
 
     public TransactionService(TxnTransactionRepository txnRepository,
                               AccountRepository accountRepository,
                               OutletRepository outletRepository,
-                              AuditService auditService) {
+                              AuditService auditService,
+                              PlatformTransactionManager transactionManager) {
         this.txnRepository = txnRepository;
         this.accountRepository = accountRepository;
         this.outletRepository = outletRepository;
         this.auditService = auditService;
+        this.postingTransaction = new TransactionTemplate(transactionManager);
+        this.postingTransaction.setIsolationLevel(Isolation.READ_COMMITTED.value());
     }
 /**
      * Records a money movement and applies it to the account balance.
@@ -66,7 +72,6 @@ public class TransactionService {
      *
      * @return the created transaction, or the pre-existing one on retry
      */
-    @Transactional(isolation = Isolation.READ_COMMITTED)
     public TxnTransaction post(TxnType type,
                                String accountNo,
                                String outletCode,
@@ -79,13 +84,49 @@ public class TransactionService {
                 ? UUID.randomUUID().toString()
                 : idempotencyKey;
 
+        if (type == null || amount <= 0 || fee < 0) {
+            throw new IllegalArgumentException("Invalid money movement");
+        }
+
         TxnTransaction replay = txnRepository.findByIdempotencyKey(effectiveKey).orElse(null);
         if (replay != null) {
-            log.info("Idempotent replay key={} -> {}", effectiveKey, replay.getTxnRef());
-            auditService.record(actor, "TXN_REPLAY_IGNORED", "Transaction",
-                    replay.getTxnRef(), "Duplicate submission ignored");
-            return replay;
+            return acceptReplay(replay, type, accountNo, outletCode, amount, fee, actor);
         }
+
+        TxnTransaction posted;
+        try {
+            posted = postingTransaction.execute(status ->
+                    postNew(type, accountNo, outletCode, amount, fee, effectiveKey, actor));
+        } catch (DataIntegrityViolationException ex) {
+            // The failed insert's transaction has rolled back. The winner is
+            // now read in a fresh transaction, never in a rollback-only scope.
+            TxnTransaction winner = txnRepository.findByIdempotencyKey(effectiveKey).orElse(null);
+            if (winner == null) {
+                throw ex;
+            }
+            return acceptReplay(winner, type, accountNo, outletCode, amount, fee, actor);
+        }
+        return posted;
+    }
+
+    private TxnTransaction acceptReplay(TxnTransaction replay, TxnType type,
+                                        String accountNo, String outletCode,
+                                        long amount, long fee, Authentication actor) {
+        Long accountId = accountRepository.findByAccountNo(accountNo).map(Account::getId).orElse(null);
+        Long outletId = outletRepository.findByCode(outletCode).map(Outlet::getId).orElse(null);
+        if (!java.util.Objects.equals(replay.getAccountId(), accountId)
+                || !java.util.Objects.equals(replay.getOutletId(), outletId)
+                || replay.getType() != type || replay.getAmount() != amount || replay.getFee() != fee) {
+            throw new IdempotencyConflictException();
+        }
+        log.info("Idempotent replay -> {}", replay.getTxnRef());
+        auditService.record(actor, "TXN_REPLAY_IGNORED", "Transaction",
+                replay.getTxnRef(), "Duplicate submission ignored");
+        return replay;
+    }
+
+    private TxnTransaction postNew(TxnType type, String accountNo, String outletCode,
+                                  long amount, long fee, String effectiveKey, Authentication actor) {
 
         Account account = accountRepository.findByAccountNo(accountNo)
                 .orElseThrow(() -> new NotFoundException("Account not found: " + accountNo));
@@ -97,7 +138,7 @@ public class TransactionService {
         Outlet outlet = outletRepository.findByCode(outletCode)
                 .orElseThrow(() -> new NotFoundException("Outlet not found: " + outletCode));
 
-        long totalDebit = amount + fee;
+        long totalDebit = Math.addExact(amount, fee);
         if (!type.isCredit() && account.getBalance() < totalDebit) {
             throw new IllegalStateException("Insufficient balance: account %s has %d, needs %d"
                     .formatted(accountNo, account.getBalance(), totalDebit));
@@ -107,30 +148,20 @@ public class TransactionService {
         TxnTransaction txn = new TxnTransaction(
                 txnRef, account.getId(), outlet.getId(), type, amount, fee, effectiveKey);
 
-        try {
-            txnRepository.saveAndFlush(txn);
-        } catch (DataIntegrityViolationException ex) {
-            // A concurrent request carried the same key; return the winning row.
-            TxnTransaction winner = txnRepository.findByIdempotencyKey(effectiveKey).orElse(null);
-            if (winner != null) {
-                log.info("Concurrent duplicate key={}, winner {}", effectiveKey, winner.getTxnRef());
-                return winner;
-            }
-            throw ex;
-        }
+        txnRepository.saveAndFlush(txn);
 
         account.applyMovement(type.signed(amount));
         if (fee > 0) {
             account.applyMovement(-fee);
         }
-        accountRepository.save(account);
+        accountRepository.saveAndFlush(account);
 
         txn.settle();
         txnRepository.save(txn);
 
-        auditService.record(actor, "TXN_SETTLED", "Transaction", txnRef,
-                "type=%s amount=%d fee=%d balance=%d"
-                        .formatted(type, amount, fee, account.getBalance()));
+        auditService.recordWithMovement(actor, "TXN_SETTLED", "Transaction", txnRef,
+                "type=%s amount=%d fee=%d".formatted(type, amount, fee));
+
         return txn;
     }
 
@@ -156,9 +187,12 @@ public class TransactionService {
      * service matches against partner statements.
      */
     @Transactional(readOnly = true)
-    public List<TxnTransaction> settledBetween(Instant from, Instant to, int limit) {
+    public List<TxnTransaction> settledBetween(Instant from, Instant to, int limit, int page) {
+        if (!from.isBefore(to) || limit < 1 || limit > MAX_PAGE || page < 0) {
+            throw new IllegalArgumentException("Invalid settled feed window or page");
+        }
         return txnRepository.findSettledBetween(
-                TxnStatus.SETTLED, from, to, PageRequest.of(0, Math.min(limit, MAX_PAGE)));
+                TxnStatus.SETTLED, from, to, PageRequest.of(page, limit));
     }
 
     /** Human-readable reference: TXN-20261002-4829137 */

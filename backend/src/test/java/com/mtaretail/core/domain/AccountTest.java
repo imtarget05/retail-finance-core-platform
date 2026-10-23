@@ -82,4 +82,12 @@ class AccountTest {
         Account account = accountWith(amount);
         assertEquals(amount, account.getBalance());
     }
+
+    @Test
+    @DisplayName("credit overflow is rejected without changing the balance")
+    void creditOverflowIsRejected() {
+        Account account = accountWith(Long.MAX_VALUE);
+        assertThrows(ArithmeticException.class, () -> account.applyMovement(1L));
+        assertEquals(Long.MAX_VALUE, account.getBalance());
+    }
 }

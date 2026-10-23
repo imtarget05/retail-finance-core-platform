@@ -26,6 +26,12 @@ class MatchStatus(str, Enum):
     MISSING_IN_CORE = "MISSING_IN_CORE"
     """The partner reports it but we have no such transaction."""
 
+    DUPLICATE_IN_CORE = "DUPLICATE_IN_CORE"
+    """The ledger feed contains the same transaction reference more than once."""
+
+    DUPLICATE_ON_PARTNER = "DUPLICATE_ON_PARTNER"
+    """The partner statement contains the same reference more than once."""
+
 
 @dataclass(frozen=True)
 class CoreTransaction:

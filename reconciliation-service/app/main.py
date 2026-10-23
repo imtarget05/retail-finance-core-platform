@@ -8,19 +8,22 @@ discrepancies are for a human to action.
 from __future__ import annotations
 
 import os
+import secrets
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .models import CoreTransaction, ReconciliationReport
 from .parser import StatementFormatError, parse_csv_statement
 from .reconciler import reconcile, summary_line
+from .triage import triage_report
 
 CORE_BASE_URL = os.getenv("CORE_BASE_URL", "http://localhost:8080")
 CORE_TOKEN = os.getenv("CORE_SERVICE_TOKEN", "")
 HTTP_TIMEOUT = float(os.getenv("CORE_HTTP_TIMEOUT", "10"))
+RECONCILIATION_API_TOKEN = os.getenv("RECONCILIATION_API_TOKEN", "")
 
 app = FastAPI(
     title="Retail Reconciliation Service",
@@ -32,7 +35,8 @@ app = FastAPI(
 class ReconcileRequest(BaseModel):
     """A statement to check, plus the window it covers."""
 
-    statement_csv: str = Field(..., description="Raw CSV statement from the partner")
+    statement_csv: str = Field(..., max_length=5_000_000,
+                               description="Raw CSV statement from the partner")
     window_start: datetime = Field(..., description="Inclusive lower bound (ISO-8601)")
     window_end: datetime = Field(..., description="Exclusive upper bound (ISO-8601)")
 
@@ -76,15 +80,23 @@ async def fetch_settled(
     }
     headers = {"Authorization": f"Bearer {CORE_TOKEN}"} if CORE_TOKEN else {}
 
+    transactions: list[CoreTransaction] = []
     try:
-        response = await client.get(
-            f"{CORE_BASE_URL}/api/v1/transactions/settled",
-            params=params,
-            headers=headers,
-            timeout=HTTP_TIMEOUT,
-        )
-        response.raise_for_status()
-        payload = response.json()
+        for page in range(1001):
+            params["page"] = page
+            response = await client.get(
+                f"{CORE_BASE_URL}/api/v1/transactions/settled",
+                params=params,
+                headers=headers,
+                timeout=HTTP_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, list) or len(payload) > limit:
+                raise HTTPException(status_code=502, detail="invalid core feed page")
+            transactions.extend(_to_core_transaction(item) for item in payload)
+            if len(payload) < limit:
+                return transactions
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=502,
@@ -95,7 +107,7 @@ async def fetch_settled(
             status_code=503, detail=f"core service unreachable: {exc}"
         ) from exc
 
-    return [_to_core_transaction(item) for item in payload]
+    raise HTTPException(status_code=503, detail="core feed exceeded 1000 pages; narrow the window")
 
 
 def _as_instant(value: datetime) -> str:
@@ -107,15 +119,26 @@ def _as_instant(value: datetime) -> str:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "core_base_url": CORE_BASE_URL}
+    return {"status": "ok"}
+
+
+def require_operator(authorization: str | None = Header(default=None)) -> None:
+    if not RECONCILIATION_API_TOKEN:
+        raise HTTPException(status_code=503, detail="operator authentication is not configured")
+    expected = f"Bearer {RECONCILIATION_API_TOKEN}"
+    if authorization is None or not secrets.compare_digest(authorization, expected):
+        raise HTTPException(status_code=401, detail="invalid operator token")
 
 
 @app.post("/api/v1/reconcile", response_model=dict)
 async def run_reconciliation(
     request: ReconcileRequest,
     limit: int = Query(default=1000, ge=1, le=1000),
+    _: None = Depends(require_operator),
 ) -> dict:
     """Compare a partner statement against the core ledger for a window."""
+    if request.window_start.tzinfo is None or request.window_end.tzinfo is None:
+        raise HTTPException(status_code=422, detail="window timestamps must include a timezone")
     if request.window_start >= request.window_end:
         raise HTTPException(
             status_code=422, detail="window_start must be before window_end"
@@ -134,4 +157,5 @@ async def run_reconciliation(
     report: ReconciliationReport = reconcile(core_transactions, partner_records)
     body = report.to_dict()
     body["summary"] = summary_line(report)
+    body["triage"] = triage_report(report)
     return body

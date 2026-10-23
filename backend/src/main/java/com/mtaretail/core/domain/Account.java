@@ -73,7 +73,7 @@ public class Account {
      * @throws IllegalStateException if the resulting balance would go negative
      */
     public void applyMovement(long signedAmount) {
-        long next = this.balance + signedAmount;
+        long next = Math.addExact(this.balance, signedAmount);
         if (next < 0) {
             throw new IllegalStateException(
                     "Insufficient balance: account %s has %d, needs %d"

@@ -10,11 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/**
- * Writes the audit trail. Uses REQUIRES_NEW so an audit row survives even if
- * the surrounding business transaction later rolls back - a failed money
- * movement is exactly the event an investigator needs to find.
- */
+/** Records operator actions and, for money movements, joins the posting transaction. */
 @Service
 public class AuditService {
 
@@ -34,15 +30,26 @@ public class AuditService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(Authentication auth, String action,
                        String targetType, String targetId, String detail) {
+        auditLogRepository.save(entry(auth, action, targetType, targetId, detail));
+    }
+
+    /** A settled posting and its audit evidence must commit or roll back together. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordWithMovement(Authentication auth, String action,
+                                   String targetType, String targetId, String detail) {
+        auditLogRepository.saveAndFlush(entry(auth, action, targetType, targetId, detail));
+    }
+
+    private AuditLog entry(Authentication auth, String action,
+                           String targetType, String targetId, String detail) {
         if (auth == null || !auth.isAuthenticated()) {
-            record("system", null, action, targetType, targetId, detail);
-            return;
+            return new AuditLog("system", null, action, targetType, targetId, detail);
         }
         String role = auth.getAuthorities().stream()
                 .findFirst()
                 .map(a -> a.getAuthority().replaceFirst("^ROLE_", ""))
                 .orElse(null);
-        record(auth.getName(), role, action, targetType, targetId, detail);
+        return new AuditLog(auth.getName(), role, action, targetType, targetId, detail);
     }
 
     @Transactional(readOnly = true)

@@ -64,6 +64,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/users/**").hasAnyRole("OUTLET_MANAGER", "OPS", "ADMIN")
                         .requestMatchers("/api/v1/outlets/**").hasAnyRole("OUTLET_MANAGER", "OPS", "ADMIN")
                         .requestMatchers("/api/v1/accounts/**").hasAnyRole("POS_STAFF", "OUTLET_MANAGER", "OPS", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/transactions/settled").hasRole("OPS")
                         .requestMatchers("/api/v1/transactions/**").authenticated()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

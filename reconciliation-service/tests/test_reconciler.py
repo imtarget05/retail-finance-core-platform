@@ -97,26 +97,25 @@ class TestDiscrepancies:
 
 
 class TestDuplicateHandling:
-    def test_duplicate_core_reference_does_not_hide_the_first_row(self):
+    def test_duplicate_core_reference_is_a_discrepancy(self):
         report = reconcile(
             [core("TXN-1", 10_000), core("TXN-1", 99_000)],
             [partner("TXN-1", 10_000)],
         )
 
-        # The second row is collapsed, so the matched amount is the first one.
-        matched = [d for d in report.items if d.status is MatchStatus.MATCHED]
-        assert len(matched) == 1
-        assert matched[0].core_amount == 10_000
-        assert report.core_count == 1
+        assert not report.is_balanced
+        assert report.core_count == 2
+        assert any(d.status is MatchStatus.DUPLICATE_IN_CORE for d in report.discrepancies)
 
-    def test_duplicate_partner_reference_collapses_to_one(self):
+    def test_duplicate_partner_reference_is_a_discrepancy(self):
         report = reconcile(
             [core("TXN-1", 10_000)],
             [partner("TXN-1", 10_000), partner("TXN-1", 10_000)],
         )
 
-        assert report.partner_count == 1
-        assert report.is_balanced
+        assert report.partner_count == 2
+        assert not report.is_balanced
+        assert any(d.status is MatchStatus.DUPLICATE_ON_PARTNER for d in report.discrepancies)
 
 
 class TestReportSerialisation:
