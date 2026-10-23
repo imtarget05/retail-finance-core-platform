@@ -54,9 +54,11 @@ The database has a **unique index** (`uk_txn_idempotency`) so two rows cannot
 persist with the same key. The complete retry contract under concurrency is
 still a Gate 1 item.
 
-**Known gap:** same-key/different-payload conflict and concurrent retry race
-handling still need Gate 1 integration tests and a transaction-boundary fix.
-Do not treat this implementation as a production payment guarantee.
+Same-key/different-payload requests now return HTTP 409, and a losing
+concurrent insert reads the winning row after its own transaction rolls back.
+These cases have MySQL integration tests. This is still not a production
+payment guarantee: outlet authorization, account-opening atomicity, recovery,
+and operational evidence remain open.
 
 ### 2. A refused debit leaves no partial state
 
@@ -78,7 +80,7 @@ unchanged balance *and* the unchanged row count.
 | Flyway owns the schema; `ddl-auto: validate` | Hibernate never alters the schema. Migrations get reviewed like code. |
 | `@Enumerated(STRING)` + `columnDefinition = "VARCHAR(n)"` | Avoids a MySQL native `ENUM`, so adding a role is a migration rather than a schema rebuild. |
 | National ID stored as SHA-256 | The raw identity number is never persisted. |
-| Audit written in `REQUIRES_NEW` | An audit row survives a rollback — a failed debit is exactly the event an investigator needs. |
+| Audit written in `REQUIRES_NEW` | Audit writes use independent transactions; the operational consequences and failure handling still need review. |
 | Reconciliation never auto-corrects | Anything not an exact match becomes a discrepancy for a human. A job that "fixes" mismatches hides the loss it exists to surface. |
 | Parser rejects non-integer amounts | A silently coerced amount yields a report that looks clean. Rejecting the file is safer. |
 | Reconciliation reads all feed pages and flags duplicate references | A truncated or collapsed feed could otherwise produce a false `BALANCED` verdict. |

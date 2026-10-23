@@ -58,7 +58,7 @@ public class DataSeeder {
             userRepository.save(new AppUser(
                     "admin", passwordEncoder.encode(seedPassword), "Seed Admin",
                     Role.ADMIN, outlet.getId()));
-            log.info("Seeded user admin / {}", seedPassword);
+            log.info("Seeded demo admin user");
         }
         if (userRepository.findByUsername("ops").isEmpty()) {
             userRepository.save(new AppUser(

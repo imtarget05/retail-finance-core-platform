@@ -11,9 +11,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 /**
- * Writes the audit trail. Uses REQUIRES_NEW so an audit row survives even if
- * the surrounding business transaction later rolls back - a failed money
- * movement is exactly the event an investigator needs to find.
+ * Writes audit entries in an independent transaction. Callers must invoke
+ * this after the business commit for successful movements; this service does
+ * not automatically record every failed attempt.
  */
 @Service
 public class AuditService {

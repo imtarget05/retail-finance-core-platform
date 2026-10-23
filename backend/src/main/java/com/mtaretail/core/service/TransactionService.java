@@ -32,9 +32,8 @@ import java.util.concurrent.ThreadLocalRandom;
  *
  * <p>Two correctness properties are load-bearing:
  * <ul>
- *   <li><b>Exactly-once effect</b> - the {@code idempotency_key} unique index
- *       turns a retry into a read of the original transaction instead of a
- *       second debit.</li>
+ *   <li><b>One effect per key</b> - the {@code idempotency_key} unique index
+ *       prevents a second ledger row; replay validates the original payload.</li>
  *   <li><b>No lost updates</b> - the account row is guarded by optimistic
  *       locking ({@code @Version}), so two concurrent debits cannot both read
  *       the same balance and overwrite each other.</li>
