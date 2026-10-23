@@ -23,7 +23,7 @@ jobs:
     # Deliberately no MySQL service: these tests must stay hermetic, so the
     # money arithmetic can be exercised on every push in seconds.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-java@v4
         with:
@@ -46,7 +46,7 @@ jobs:
     # Testcontainers starts MySQL itself, so the runner only needs Docker,
     # which ubuntu-latest already provides.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-java@v4
         with:
@@ -64,7 +64,7 @@ jobs:
       run:
         working-directory: reconciliation-service
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
