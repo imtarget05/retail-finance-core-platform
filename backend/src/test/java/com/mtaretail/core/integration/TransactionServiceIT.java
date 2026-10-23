@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -148,9 +149,16 @@ class TransactionServiceIT extends AbstractTransactionIT {
                 TxnType.CASH_IN, ACCOUNT, OUTLET, 200L, 0L, uniqueKey("page-2"), actor);
         Instant to = Instant.now().plusSeconds(5);
 
-        List<TxnTransaction> page0 = transactionService.settledBetween(from, to, 1, 0);
-        List<TxnTransaction> page1 = transactionService.settledBetween(from, to, 1, 1);
-        List<String> refs = List.of(page0.get(0).getTxnRef(), page1.get(0).getTxnRef());
+        List<TxnTransaction> fullFeed = transactionService.settledBetween(from, to, 1000, 0);
+        List<String> refs = new ArrayList<>();
+        for (int page = 0; page <= fullFeed.size(); page++) {
+            List<TxnTransaction> slice = transactionService.settledBetween(from, to, 1, page);
+            if (slice.isEmpty()) {
+                break;
+            }
+            refs.add(slice.get(0).getTxnRef());
+        }
+        assertEquals(fullFeed.stream().map(TxnTransaction::getTxnRef).toList(), refs);
         assertTrue(refs.contains(first.getTxnRef()));
         assertTrue(refs.contains(second.getTxnRef()));
     }
