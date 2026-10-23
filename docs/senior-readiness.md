@@ -15,6 +15,13 @@ flagship candidate, not a production system or a claim of senior experience.
 
 ## Gate 1 — senior software and architecture
 
+- Make account creation and its opening ledger movement atomic. Inject a
+  failure between the two writes and prove no orphan account remains.
+- Enforce outlet/account/transaction object-level authorization. A POS token
+  from outlet A must not read or post for outlet B; add negative HTTP tests.
+- Keep the demo JWT secret and seed password unavailable in non-local
+  environments; replace plain SHA-256 national-ID hashing with a reviewed PII
+  protection design before real customer data is used.
 - Expand tests for cross-outlet access, rare reference collisions, overflow at
   the API boundary, and stable pagination while settlement is concurrent.
 - Evaluate a durable request fingerprint for future request schema changes;
