@@ -96,7 +96,7 @@ public class TransactionService {
         TxnTransaction posted;
         try {
             posted = postingTransaction.execute(status ->
-                    postNew(type, accountNo, outletCode, amount, fee, effectiveKey));
+                    postNew(type, accountNo, outletCode, amount, fee, effectiveKey, actor));
         } catch (DataIntegrityViolationException ex) {
             // The failed insert's transaction has rolled back. The winner is
             // now read in a fresh transaction, never in a rollback-only scope.
@@ -106,8 +106,6 @@ public class TransactionService {
             }
             return acceptReplay(winner, type, accountNo, outletCode, amount, fee, actor);
         }
-        auditService.record(actor, "TXN_SETTLED", "Transaction", posted.getTxnRef(),
-                "type=%s amount=%d fee=%d".formatted(type, amount, fee));
         return posted;
     }
 
@@ -128,7 +126,7 @@ public class TransactionService {
     }
 
     private TxnTransaction postNew(TxnType type, String accountNo, String outletCode,
-                                  long amount, long fee, String effectiveKey) {
+                                  long amount, long fee, String effectiveKey, Authentication actor) {
 
         Account account = accountRepository.findByAccountNo(accountNo)
                 .orElseThrow(() -> new NotFoundException("Account not found: " + accountNo));
@@ -160,6 +158,9 @@ public class TransactionService {
 
         txn.settle();
         txnRepository.save(txn);
+
+        auditService.recordWithMovement(actor, "TXN_SETTLED", "Transaction", txnRef,
+                "type=%s amount=%d fee=%d".formatted(type, amount, fee));
 
         return txn;
     }
