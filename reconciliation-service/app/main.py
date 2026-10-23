@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from .models import CoreTransaction, ReconciliationReport
 from .parser import StatementFormatError, parse_csv_statement
 from .reconciler import reconcile, summary_line
+from .triage import triage_report
 
 CORE_BASE_URL = os.getenv("CORE_BASE_URL", "http://localhost:8080")
 CORE_TOKEN = os.getenv("CORE_SERVICE_TOKEN", "")
@@ -142,4 +143,5 @@ async def run_reconciliation(
     report: ReconciliationReport = reconcile(core_transactions, partner_records)
     body = report.to_dict()
     body["summary"] = summary_line(report)
+    body["triage"] = triage_report(report)
     return body
