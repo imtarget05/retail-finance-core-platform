@@ -156,9 +156,12 @@ public class TransactionService {
      * service matches against partner statements.
      */
     @Transactional(readOnly = true)
-    public List<TxnTransaction> settledBetween(Instant from, Instant to, int limit) {
+    public List<TxnTransaction> settledBetween(Instant from, Instant to, int limit, int page) {
+        if (!from.isBefore(to) || limit < 1 || limit > MAX_PAGE || page < 0) {
+            throw new IllegalArgumentException("Invalid settled feed window or page");
+        }
         return txnRepository.findSettledBetween(
-                TxnStatus.SETTLED, from, to, PageRequest.of(0, Math.min(limit, MAX_PAGE)));
+                TxnStatus.SETTLED, from, to, PageRequest.of(page, limit));
     }
 
     /** Human-readable reference: TXN-20261002-4829137 */

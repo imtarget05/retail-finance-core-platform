@@ -132,10 +132,27 @@ class TransactionServiceIT extends AbstractTransactionIT {
                 TxnType.PAYMENT, ACCOUNT, OUTLET, 2_000L, 100L, uniqueKey("window"), actor);
 
         List<TxnTransaction> window = transactionService.settledBetween(
-                Instant.now().minusSeconds(60), Instant.now().plusSeconds(60), 100);
+                Instant.now().minusSeconds(60), Instant.now().plusSeconds(60), 100, 0);
 
         assertTrue(window.stream().anyMatch(t -> t.getTxnRef().equals(txn.getTxnRef())),
                 "the settled feed must include the transaction just posted");
+    }
+
+    @Test
+    @DisplayName("settlement feed exposes consecutive pages without dropping rows")
+    void settledWindowFeedPagesAllTransactions() {
+        Instant from = Instant.now().minusSeconds(5);
+        TxnTransaction first = transactionService.post(
+                TxnType.CASH_IN, ACCOUNT, OUTLET, 100L, 0L, uniqueKey("page-1"), actor);
+        TxnTransaction second = transactionService.post(
+                TxnType.CASH_IN, ACCOUNT, OUTLET, 200L, 0L, uniqueKey("page-2"), actor);
+        Instant to = Instant.now().plusSeconds(5);
+
+        List<TxnTransaction> page0 = transactionService.settledBetween(from, to, 1, 0);
+        List<TxnTransaction> page1 = transactionService.settledBetween(from, to, 1, 1);
+        List<String> refs = List.of(page0.get(0).getTxnRef(), page1.get(0).getTxnRef());
+        assertTrue(refs.contains(first.getTxnRef()));
+        assertTrue(refs.contains(second.getTxnRef()));
     }
 
     @Test

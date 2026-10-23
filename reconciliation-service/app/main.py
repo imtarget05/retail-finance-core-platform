@@ -76,15 +76,23 @@ async def fetch_settled(
     }
     headers = {"Authorization": f"Bearer {CORE_TOKEN}"} if CORE_TOKEN else {}
 
+    transactions: list[CoreTransaction] = []
     try:
-        response = await client.get(
-            f"{CORE_BASE_URL}/api/v1/transactions/settled",
-            params=params,
-            headers=headers,
-            timeout=HTTP_TIMEOUT,
-        )
-        response.raise_for_status()
-        payload = response.json()
+        for page in range(1001):
+            params["page"] = page
+            response = await client.get(
+                f"{CORE_BASE_URL}/api/v1/transactions/settled",
+                params=params,
+                headers=headers,
+                timeout=HTTP_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, list) or len(payload) > limit:
+                raise HTTPException(status_code=502, detail="invalid core feed page")
+            transactions.extend(_to_core_transaction(item) for item in payload)
+            if len(payload) < limit:
+                return transactions
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=502,
@@ -95,7 +103,7 @@ async def fetch_settled(
             status_code=503, detail=f"core service unreachable: {exc}"
         ) from exc
 
-    return [_to_core_transaction(item) for item in payload]
+    raise HTTPException(status_code=503, detail="core feed exceeded 1000 pages; narrow the window")
 
 
 def _as_instant(value: datetime) -> str:

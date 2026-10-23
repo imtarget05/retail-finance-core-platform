@@ -27,7 +27,7 @@ public interface TxnTransactionRepository extends JpaRepository<TxnTransaction, 
             where t.status = :status
               and t.settledAt >= :from
               and t.settledAt < :to
-            order by t.settledAt asc
+            order by t.settledAt asc, t.id asc
             """)
     List<TxnTransaction> findSettledBetween(@Param("status") TxnStatus status,
                                             @Param("from") Instant from,

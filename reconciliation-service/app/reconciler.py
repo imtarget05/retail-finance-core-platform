@@ -29,19 +29,40 @@ def reconcile(
     exists on only one side is reported as missing rather than dropped.
     """
     core_by_key: dict[str, CoreTransaction] = {}
+    core_duplicates: list[CoreTransaction] = []
+    core_count = 0
     for txn in core_transactions:
-        # First occurrence wins. A duplicate reference inside our own ledger is
-        # itself a problem, and must not silently overwrite the first row.
-        core_by_key.setdefault(txn.partner_key, txn)
+        core_count += 1
+        if txn.partner_key in core_by_key:
+            core_duplicates.append(txn)
+        else:
+            core_by_key[txn.partner_key] = txn
 
     partner_by_key: dict[str, PartnerRecord] = {}
+    partner_duplicates: list[PartnerRecord] = []
+    partner_count = 0
     for record in partner_records:
-        partner_by_key.setdefault(record.partner_ref, record)
+        partner_count += 1
+        if record.partner_ref in partner_by_key:
+            partner_duplicates.append(record)
+        else:
+            partner_by_key[record.partner_ref] = record
 
     report = ReconciliationReport(
-        core_count=len(core_by_key),
-        partner_count=len(partner_by_key),
+        core_count=core_count,
+        partner_count=partner_count,
     )
+
+    for txn in core_duplicates:
+        report.items.append(Discrepancy(
+            status=MatchStatus.DUPLICATE_IN_CORE, key=txn.partner_key,
+            core_amount=txn.amount, detail="duplicate ledger reference",
+        ))
+    for record in partner_duplicates:
+        report.items.append(Discrepancy(
+            status=MatchStatus.DUPLICATE_ON_PARTNER, key=record.partner_ref,
+            partner_amount=record.amount, detail="duplicate partner reference",
+        ))
 
     for key, txn in core_by_key.items():
         partner = partner_by_key.get(key)

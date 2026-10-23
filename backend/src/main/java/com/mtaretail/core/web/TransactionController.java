@@ -83,9 +83,10 @@ public class TransactionController {
     public ResponseEntity<List<TransactionResponse>> settled(
             @RequestParam Instant from,
             @RequestParam Instant to,
-            @RequestParam(defaultValue = "200") int limit) {
+            @RequestParam(defaultValue = "200") int limit,
+            @RequestParam(defaultValue = "0") int page) {
 
-        List<TransactionResponse> body = transactionService.settledBetween(from, to, limit).stream()
+        List<TransactionResponse> body = transactionService.settledBetween(from, to, limit, page).stream()
                 .map(t -> TransactionResponse.from(
                         t,
                         accountRepository.findById(t.getAccountId()).map(a -> a.getAccountNo()).orElse(null),
