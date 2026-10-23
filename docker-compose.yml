@@ -81,6 +81,7 @@ services:
     environment:
       CORE_BASE_URL: http://core:8080
       CORE_SERVICE_TOKEN: ${CORE_SERVICE_TOKEN:-}
+      RECONCILIATION_API_TOKEN: ${RECONCILIATION_API_TOKEN:-local-dev-reconciliation-token}
     ports:
       - "127.0.0.1:8000:8000"
 

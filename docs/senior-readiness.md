@@ -10,19 +10,20 @@ flagship candidate, not a production system or a claim of senior experience.
 - Fail reconciliation on duplicate references; read every settled feed page.
 - Reject balance arithmetic overflow; keep read-only triage advisory.
 - CI must pass Java unit, MySQL integration, and Python tests on the same SHA.
-- Record unresolved risks: payload mismatch on idempotency replay, concurrent
-  duplicate transaction handling, and security of the reconciliation endpoint.
+- Verify same-key/different-payload conflict, concurrent replay, and operator
+  auth on MySQL-backed CI. Recheck outlet-scoped authorization separately.
 
 ## Gate 1 — senior software and architecture
 
-- Add integration tests for same key/different payload, concurrent retries,
-  overflow, auth boundaries, and stable pagination under realistic load.
-- Fix replay semantics so conflicting payload returns a conflict, with a
-  durable request fingerprint. Use an isolated transaction boundary for a
-  unique-key race; do not query inside a rollback-only transaction.
+- Expand tests for cross-outlet access, rare reference collisions, overflow at
+  the API boundary, and stable pagination while settlement is concurrent.
+- Evaluate a durable request fingerprint for future request schema changes;
+  current replay comparison uses the persisted transaction fields. Verify the
+  unique-key race under repeated load, not just one two-thread test.
 - Version the reconciliation report, persist run metadata, and require an
-  authenticated operator to review/close discrepancies. Keep agent advice
-  separate from approval.
+  individually identified operator to review/close discrepancies. The current
+  shared API token protects intake but does not identify a human approver.
+  Keep agent advice separate from approval.
 - Add C4 context/container diagrams, API contracts, migration upgrade and
   forward-fix drill, capacity assumptions, threat model, and reviewable ADRs.
 

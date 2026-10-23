@@ -97,6 +97,13 @@ docker compose --profile messaging up --build
 # Swagger UI      http://localhost:8080/swagger-ui.html
 # Reconciliation  http://localhost:8000/docs
 ```
+
+The reconciliation endpoint requires `Authorization: Bearer` with
+`RECONCILIATION_API_TOKEN`. Compose supplies a local-only demo token; replace
+it outside local development. Its call to the Java settled feed requires an
+OPS JWT in `CORE_SERVICE_TOKEN`; without one the request fails closed. Do not
+put either token in a committed file. The `/health` endpoint reports only
+process health, not core connectivity.
 ---
 
 ## Tests
