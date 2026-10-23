@@ -2,8 +2,8 @@
 
 A transaction-processing platform for retail financial outlets, built as two
 services sharing one domain: a **Java/Spring Boot core** that owns the ledger,
-and a **Python reconciliation service** that proves the ledger agrees with what
-the partner bank reports.
+and a **Python reconciliation service** that compares the ledger with partner
+statements and reports differences for human review.
 
 ```
   POS terminal / mobile app
@@ -14,8 +14,8 @@ the partner bank reports.
   |  backend/              |----------------------------+
   |  Spring Boot 3 · Java 17|                            |
   |  MySQL 8 · Flyway      |                            v
-  |  Redis · RabbitMQ      |              +-----------------------------+
-  |  Prometheus · OpenAPI  |              | reconciliation-service/    |
+  |  Prometheus · OpenAPI  |              +-----------------------------+
+  |                        |              | reconciliation-service/    |
   +------------------------+              | Python · FastAPI           |
                                          | CSV parse + match           |
                                          +-----------------------------+
@@ -44,16 +44,19 @@ A POS terminal on a flaky link re-sends requests. The client generates an
 
 ```
 POST /api/v1/transactions  { ..., "idempotencyKey": "POS01-20261002-0001" }
-  -> 201, TXN-20261002-8294172
+  -> 200, TXN-20261002-8294172
 
 POST /api/v1/transactions  { ..., "idempotencyKey": "POS01-20261002-0001" }   # retry
   -> 200, TXN-20261002-8294172      same reference, no second debit
 ```
 
-This is enforced by a **unique index** (`uk_txn_idempotency`), not an
-application-level check — so it holds under concurrent requests too. A race
-between two in-flight retries is caught and resolved by returning the winning
-row.
+The database has a **unique index** (`uk_txn_idempotency`) so two rows cannot
+persist with the same key. The complete retry contract under concurrency is
+still a Gate 1 item.
+
+**Known gap:** same-key/different-payload conflict and concurrent retry race
+handling still need Gate 1 integration tests and a transaction-boundary fix.
+Do not treat this implementation as a production payment guarantee.
 
 ### 2. A refused debit leaves no partial state
 
@@ -78,6 +81,7 @@ unchanged balance *and* the unchanged row count.
 | Audit written in `REQUIRES_NEW` | An audit row survives a rollback — a failed debit is exactly the event an investigator needs. |
 | Reconciliation never auto-corrects | Anything not an exact match becomes a discrepancy for a human. A job that "fixes" mismatches hides the loss it exists to surface. |
 | Parser rejects non-integer amounts | A silently coerced amount yields a report that looks clean. Rejecting the file is safer. |
+| Reconciliation reads all feed pages and flags duplicate references | A truncated or collapsed feed could otherwise produce a false `BALANCED` verdict. |
 
 ---
 
@@ -86,9 +90,13 @@ unchanged balance *and* the unchanged row count.
 ```bash
 docker compose up --build
 
+# Optional infrastructure playground; no application feature depends on it yet.
+docker compose --profile messaging up --build
+
 # Core API        http://localhost:8080
 # Swagger UI      http://localhost:8080/swagger-ui.html
 # Reconciliation  http://localhost:8000/docs
+```
 ---
 
 ## Tests
@@ -99,8 +107,8 @@ docker compose up --build
 cd reconciliation-service && python -m pytest tests/ -v
 ```
 
-Current state: **36 Java tests** (26 unit + 10 integration) and **11 Python
-tests**, all green.
+Run CI on the exact review SHA for the authoritative test counts and result.
+Local unit tests alone do not establish that MySQL integration tests pass.
 
 The integration tests run against a **real MySQL 8** via Testcontainers, not
 H2. That is deliberate: unique-index idempotency, `CHECK` constraints,
@@ -134,14 +142,17 @@ docs/                                 Architecture notes and decisions
 
 ## Current scope, stated plainly
 
-Implemented and tested: outlets, accounts, idempotent transaction posting with
-optimistic locking, RBAC + JWT, append-only audit trail, and reconciliation
-matching.
+Implemented: outlets, accounts, transaction posting with optimistic locking,
+RBAC + JWT, audit trail, and reconciliation matching. The exact integration
+test result for this revision is determined by CI.
 
-Not yet built: RabbitMQ async settlement, Redis caching, the Angular admin
-console, and a reconciliation scheduler. They are wired into the compose file
-but are the next increment, not current behaviour.
-```
+Not yet built: Kafka outbox/relay, RabbitMQ reconciliation jobs, Redis read
+cache, the Angular admin console, and a reconciliation scheduler. Redis and
+RabbitMQ are optional Compose examples, not application integrations. See the
+[messaging ADR](docs/adr/0001-messaging-boundaries.md) and
+[senior readiness gates](docs/senior-readiness.md). Reconciliation currently
+has three deterministic, read-only triage agents; no agent can correct a
+money movement.
 
 With `SEED_ENABLED=true` the stack creates `admin`, `ops` and `pos01`
 (password: `ChangeMe123!`).
