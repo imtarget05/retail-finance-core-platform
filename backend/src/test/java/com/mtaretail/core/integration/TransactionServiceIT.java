@@ -5,6 +5,7 @@ import com.mtaretail.core.domain.TxnStatus;
 import com.mtaretail.core.domain.TxnTransaction;
 import com.mtaretail.core.domain.TxnType;
 import com.mtaretail.core.exception.NotFoundException;
+import com.mtaretail.core.exception.IdempotencyConflictException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -65,6 +66,20 @@ class TransactionServiceIT extends AbstractTransactionIT {
                 "a retry must resolve to the original transaction");
         assertEquals(before + 77_000L, balance(),
                 "a retry must not move money a second time");
+    }
+
+    @Test
+    @DisplayName("same key with different money movement is rejected")
+    void idempotencyKeyCannotBeReusedForDifferentAmount() {
+        String key = uniqueKey("idem-conflict");
+        long before = balance();
+        transactionService.post(TxnType.CASH_IN, ACCOUNT, OUTLET, 77_000L, 0L, key, actor);
+
+        assertThrows(IdempotencyConflictException.class, () -> transactionService.post(
+                TxnType.CASH_IN, ACCOUNT, OUTLET, 99_000L, 0L, key, actor));
+        assertEquals(before + 77_000L, balance());
+        assertEquals(1L, txnRepository.findAll().stream()
+                .filter(t -> key.equals(t.getIdempotencyKey())).count());
     }
 
     @Test

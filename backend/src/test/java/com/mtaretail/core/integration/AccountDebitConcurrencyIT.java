@@ -34,6 +34,37 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AccountDebitConcurrencyIT extends AbstractTransactionIT {
 
     @Test
+    @DisplayName("concurrent requests with one idempotency key return one settled row")
+    void concurrentRetriesSettleOnce() throws Exception {
+        String key = uniqueKey("same-key-race");
+        long before = balance();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<TxnTransaction>> results = new ArrayList<>();
+        try {
+            for (int i = 0; i < 2; i++) {
+                results.add(executor.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    return transactionService.post(TxnType.CASH_IN, ACCOUNT, OUTLET,
+                            12_345L, 0L, key, actor);
+                }));
+            }
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            String firstRef = results.get(0).get(15, TimeUnit.SECONDS).getTxnRef();
+            assertEquals(firstRef, results.get(1).get(15, TimeUnit.SECONDS).getTxnRef());
+            assertEquals(before + 12_345L, balance());
+            assertEquals(1L, txnRepository.findAll().stream()
+                    .filter(t -> key.equals(t.getIdempotencyKey())).count());
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     @DisplayName("competing debits for the last unit: exactly one succeeds and optimistic lock fails the rest")
     void concurrentDebitsCompetingForLastUnit_exactlyOneSucceeds() throws Exception {
         String testAccount = "COMP-ACC-" + java.util.UUID.randomUUID().toString().substring(0, 8);
