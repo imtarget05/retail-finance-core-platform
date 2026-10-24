@@ -94,4 +94,28 @@ public class TransactionController {
                 .toList();
         return ResponseEntity.ok(body);
     }
+
+    @Operation(summary = "Settled movements in a window scoped to an outlet",
+            description = "Scoped feed endpoint consumed by Agent Hub and Reconciliation.")
+    @GetMapping("/settled-scoped")
+    public ResponseEntity<List<TransactionResponse>> settledScoped(
+            @RequestParam String outletCode,
+            @RequestParam Instant from,
+            @RequestParam Instant to,
+            @RequestParam(defaultValue = "200") int limit,
+            @RequestParam(defaultValue = "0") int page,
+            Authentication authentication) {
+
+        List<TransactionResponse> body = transactionService.settledBetweenByOutlet(outletCode, from, to, limit, page, authentication).stream()
+                .map(t -> TransactionResponse.from(
+                        t,
+                        accountRepository.findById(t.getAccountId()).map(a -> a.getAccountNo()).orElse(null),
+                        outletCode))
+                .toList();
+
+        return ResponseEntity.ok()
+                .header("X-Service-SHA", "433447f")
+                .header("X-Record-Version", "1")
+                .body(body);
+    }
 }

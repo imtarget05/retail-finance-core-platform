@@ -34,5 +34,20 @@ public interface TxnTransactionRepository extends JpaRepository<TxnTransaction, 
                                             @Param("to") Instant to,
                                             Pageable pageable);
 
+    /** Settled transactions in a window scoped to a specific outlet. */
+    @Query("""
+            select t from TxnTransaction t
+            where t.status = :status
+              and t.outletId = :outletId
+              and t.settledAt >= :from
+              and t.settledAt < :to
+            order by t.settledAt asc, t.id asc
+            """)
+    List<TxnTransaction> findSettledBetweenByOutlet(@Param("status") TxnStatus status,
+                                                    @Param("outletId") Long outletId,
+                                                    @Param("from") Instant from,
+                                                    @Param("to") Instant to,
+                                                    Pageable pageable);
+
     long countByStatus(TxnStatus status);
 }

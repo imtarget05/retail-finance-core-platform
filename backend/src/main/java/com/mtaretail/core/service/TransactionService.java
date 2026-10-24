@@ -210,6 +210,21 @@ public class TransactionService {
                 TxnStatus.SETTLED, from, to, PageRequest.of(page, limit));
     }
 
+    /**
+     * Settled movements scoped to an authorized outlet, verified by Java ActorOutletPolicy before query.
+     */
+    @Transactional(readOnly = true)
+    public List<TxnTransaction> settledBetweenByOutlet(String outletCode, Instant from, Instant to, int limit, int page, Authentication authentication) {
+        if (!from.isBefore(to) || limit < 1 || limit > MAX_PAGE || page < 0) {
+            throw new IllegalArgumentException("Invalid settled feed window or page");
+        }
+        Outlet outlet = outletRepository.findByCode(outletCode)
+                .orElseThrow(() -> new NotFoundException("Outlet not found: " + outletCode));
+        actorOutletPolicy.requireTransactionRead(authentication, outlet.getId());
+        return txnRepository.findSettledBetweenByOutlet(
+                TxnStatus.SETTLED, outlet.getId(), from, to, PageRequest.of(page, limit));
+    }
+
     /** Human-readable reference: TXN-20261002-4829137 */
     static String generateTxnRef() {
         int suffix = ThreadLocalRandom.current().nextInt(1_000_000, 9_999_999);

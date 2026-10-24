@@ -65,6 +65,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/outlets/**").hasAnyRole("OUTLET_MANAGER", "OPS", "ADMIN")
                         .requestMatchers("/api/v1/accounts/**").hasAnyRole("POS_STAFF", "OUTLET_MANAGER", "OPS", "ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/transactions/settled").hasRole("OPS")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/transactions/settled-scoped").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/transactions/**")
                             .hasAnyRole("POS_STAFF", "OUTLET_MANAGER")
                         .requestMatchers("/api/v1/transactions/**").authenticated()
