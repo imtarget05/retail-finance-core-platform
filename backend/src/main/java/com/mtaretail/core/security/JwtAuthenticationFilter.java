@@ -1,5 +1,7 @@
 package com.mtaretail.core.security;
 
+import com.mtaretail.core.domain.AppUser;
+import com.mtaretail.core.repository.AppUserRepository;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -32,9 +34,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtTokenProvider tokenProvider;
+    private final AppUserRepository users;
 
-    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider) {
+    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider, AppUserRepository users) {
         this.tokenProvider = tokenProvider;
+        this.users = users;
     }
 
     @Override
@@ -47,11 +51,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Claims claims = tokenProvider.parse(token);
             if (claims != null) {
                 String username = claims.getSubject();
-                String role = claims.get("role", String.class);
-                var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
-                var auth = new UsernamePasswordAuthenticationToken(username, null, authorities);
-                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(auth);
+                AppUser user = users.findByUsername(username).orElse(null);
+                if (user != null && user.isEnabled()) {
+                    // JWT proves identity; current DB role decides authorization.
+                    var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()));
+                    var auth = new UsernamePasswordAuthenticationToken(username, null, authorities);
+                    auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                }
             } else {
                 log.debug("Invalid bearer token presented to {}", request.getRequestURI());
             }

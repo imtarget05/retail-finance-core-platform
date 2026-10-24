@@ -68,8 +68,8 @@ public class TransactionController {
 
     @Operation(summary = "Look up one transaction by its reference")
     @GetMapping("/{txnRef}")
-    public ResponseEntity<TransactionResponse> get(@PathVariable String txnRef) {
-        TxnTransaction txn = transactionService.findByRef(txnRef);
+    public ResponseEntity<TransactionResponse> get(@PathVariable String txnRef, Authentication authentication) {
+        TxnTransaction txn = transactionService.findByRef(txnRef, authentication);
         String accountNo = accountRepository.findById(txn.getAccountId())
                 .map(a -> a.getAccountNo()).orElse(null);
         String outletCode = outletRepository.findById(txn.getOutletId())

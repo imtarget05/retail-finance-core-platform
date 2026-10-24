@@ -30,6 +30,9 @@ public class Account {
             length = 64, columnDefinition = "CHAR(64)")
     private String idNumberHash;
 
+    @Column(name = "outlet_id")
+    private Long outletId;
+
     @Column(nullable = false)
     private long balance;
 
@@ -59,9 +62,14 @@ public class Account {
     }
 
     public Account(String accountNo, String customerName, String idNumberHash) {
+        this(accountNo, customerName, idNumberHash, null);
+    }
+
+    public Account(String accountNo, String customerName, String idNumberHash, Long outletId) {
         this.accountNo = accountNo;
         this.customerName = customerName;
         this.idNumberHash = idNumberHash;
+        this.outletId = outletId;
         this.balance = 0L;
         this.status = "ACTIVE";
     }
@@ -96,6 +104,10 @@ public class Account {
 
     public String getIdNumberHash() {
         return idNumberHash;
+    }
+
+    public Long getOutletId() {
+        return outletId;
     }
 
     public long getBalance() {
