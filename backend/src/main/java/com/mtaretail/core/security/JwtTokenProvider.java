@@ -17,8 +17,8 @@ import java.util.Date;
 /**
  * Issues and validates HS256 JWTs.
  *
- * <p>The role claim is what Spring Security maps to authorities, so token
- * contents and authorization decisions share one source of truth.
+ * <p>The role and outlet claims are informational. Authorization reads the
+ * current enabled user, role and outlet from the database on each request.
  */
 @Component
 public class JwtTokenProvider {

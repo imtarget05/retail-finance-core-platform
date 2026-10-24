@@ -4,6 +4,7 @@ import com.mtaretail.core.domain.Account;
 import com.mtaretail.core.exception.NotFoundException;
 import com.mtaretail.core.repository.AccountRepository;
 import com.mtaretail.core.service.AccountOpeningService;
+import com.mtaretail.core.service.ActorOutletPolicy;
 import com.mtaretail.core.web.dto.AccountResponse;
 import com.mtaretail.core.web.dto.CreateAccountRequest;
 import io.swagger.v3.oas.annotations.Operation;
@@ -26,11 +27,14 @@ public class AccountController {
 
     private final AccountRepository accountRepository;
     private final AccountOpeningService accountOpeningService;
+    private final ActorOutletPolicy actorOutletPolicy;
 
     public AccountController(AccountRepository accountRepository,
-                             AccountOpeningService accountOpeningService) {
+                             AccountOpeningService accountOpeningService,
+                             ActorOutletPolicy actorOutletPolicy) {
         this.accountRepository = accountRepository;
         this.accountOpeningService = accountOpeningService;
+        this.actorOutletPolicy = actorOutletPolicy;
     }
 
     @Operation(summary = "Open an account",
@@ -45,9 +49,10 @@ public class AccountController {
 
     @Operation(summary = "Read an account with its current balance")
     @GetMapping("/{accountNo}")
-    public ResponseEntity<AccountResponse> get(@PathVariable String accountNo) {
+    public ResponseEntity<AccountResponse> get(@PathVariable String accountNo, Authentication authentication) {
         Account account = accountRepository.findByAccountNo(accountNo)
                 .orElseThrow(() -> new NotFoundException("Account not found: " + accountNo));
+        actorOutletPolicy.requireAccountRead(authentication, account);
         return ResponseEntity.ok(AccountResponse.from(account));
     }
 

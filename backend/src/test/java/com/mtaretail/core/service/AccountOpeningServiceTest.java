@@ -29,12 +29,15 @@ class AccountOpeningServiceTest {
         DataIntegrityViolationException unrelatedFailure =
                 new DataIntegrityViolationException("injected audit integrity failure");
         when(accounts.save(any(Account.class))).thenThrow(unrelatedFailure);
+        ActorOutletPolicy actorOutletPolicy = mock(ActorOutletPolicy.class);
+        when(actorOutletPolicy.requirePostingOutlet(any())).thenReturn(1L);
         AccountOpeningService service = new AccountOpeningService(accounts,
                 mock(OutletRepository.class), mock(TransactionService.class),
-                mock(AuditService.class), transactionManager);
+                mock(AuditService.class), actorOutletPolicy, transactionManager);
 
         DataIntegrityViolationException actual = assertThrows(DataIntegrityViolationException.class,
-                () -> service.open(new CreateAccountRequest("A-1", "Customer", "987654321", 0L), null));
+                () -> service.open(new CreateAccountRequest("A-1", "Customer", "987654321", 0L),
+                        new org.springframework.security.authentication.UsernamePasswordAuthenticationToken("test", "n/a")));
         assertSame(unrelatedFailure, actual);
     }
 }

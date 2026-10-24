@@ -69,7 +69,8 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
     void concurrentDebitsCompetingForLastUnit_exactlyOneSucceeds() throws Exception {
         String testAccount = "COMP-ACC-" + java.util.UUID.randomUUID().toString().substring(0, 8);
         accountRepository.save(new Account(
-                testAccount, "Compete Customer", TransactionService.hashIdNumber("ID-" + testAccount)));
+                testAccount, "Compete Customer", TransactionService.hashIdNumber("ID-" + testAccount),
+                outletRepository.findByCode(OUTLET).orElseThrow().getId()));
 
         // Seed account with exactly 100,000 VND
         transactionService.post(TxnType.CASH_IN, testAccount, OUTLET, 100_000L, 0L,
@@ -140,7 +141,8 @@ class AccountDebitConcurrencyIT extends AbstractTransactionIT {
     void concurrentDebits_noLostUpdates() throws Exception {
         String testAccount = "MULTI-ACC-" + java.util.UUID.randomUUID().toString().substring(0, 8);
         accountRepository.save(new Account(
-                testAccount, "Multi Customer", TransactionService.hashIdNumber("ID-" + testAccount)));
+                testAccount, "Multi Customer", TransactionService.hashIdNumber("ID-" + testAccount),
+                outletRepository.findByCode(OUTLET).orElseThrow().getId()));
 
         // Seed account with 500,000 VND
         transactionService.post(TxnType.CASH_IN, testAccount, OUTLET, 500_000L, 0L,

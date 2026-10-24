@@ -4,6 +4,8 @@ import com.mtaretail.core.AbstractMySqlIT;
 import com.mtaretail.core.domain.Account;
 import com.mtaretail.core.domain.Outlet;
 import com.mtaretail.core.domain.TxnType;
+import com.mtaretail.core.domain.AppUser;
+import com.mtaretail.core.domain.Role;
 import com.mtaretail.core.repository.AccountRepository;
 import com.mtaretail.core.repository.OutletRepository;
 import com.mtaretail.core.service.TransactionService;
@@ -39,6 +41,9 @@ abstract class AbstractTransactionIT extends AbstractMySqlIT {
     protected OutletRepository outletRepository;
 
     @Autowired
+    protected com.mtaretail.core.repository.AppUserRepository userRepository;
+
+    @Autowired
     protected com.mtaretail.core.repository.TxnTransactionRepository txnRepository;
 
     @Autowired
@@ -55,10 +60,15 @@ abstract class AbstractTransactionIT extends AbstractMySqlIT {
         if (outletRepository.findByCode(OUTLET).isEmpty()) {
             outletRepository.save(new Outlet(OUTLET, "Integration Outlet", "HCM"));
         }
+        Long outletId = outletRepository.findByCode(OUTLET).orElseThrow().getId();
+        if (userRepository.findByUsername("it-cashier").isEmpty()) {
+            userRepository.save(new AppUser("it-cashier", "unused", "Integration Cashier",
+                    Role.POS_STAFF, outletId));
+        }
         if (accountRepository.findByAccountNo(ACCOUNT).isEmpty()) {
             accountRepository.save(new Account(
                     ACCOUNT, "Integration Customer",
-                    TransactionService.hashIdNumber("ID-" + ACCOUNT)));
+                    TransactionService.hashIdNumber("ID-" + ACCOUNT), outletId));
         }
     }
 

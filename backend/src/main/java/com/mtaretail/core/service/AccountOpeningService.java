@@ -21,17 +21,20 @@ public class AccountOpeningService {
     private final OutletRepository outletRepository;
     private final TransactionService transactionService;
     private final AuditService auditService;
+    private final ActorOutletPolicy actorOutletPolicy;
     private final TransactionTemplate openingTransaction;
 
     public AccountOpeningService(AccountRepository accountRepository,
                                  OutletRepository outletRepository,
                                  TransactionService transactionService,
                                  AuditService auditService,
+                                 ActorOutletPolicy actorOutletPolicy,
                                  PlatformTransactionManager transactionManager) {
         this.accountRepository = accountRepository;
         this.outletRepository = outletRepository;
         this.transactionService = transactionService;
         this.auditService = auditService;
+        this.actorOutletPolicy = actorOutletPolicy;
         this.openingTransaction = new TransactionTemplate(transactionManager);
     }
 
@@ -68,6 +71,7 @@ public class AccountOpeningService {
     }
 
     private Account openInTransaction(CreateAccountRequest request, Authentication actor) {
+        Long actorOutletId = actorOutletPolicy.requirePostingOutlet(actor);
         if (request.openingBalance() < 0) {
             throw new IllegalArgumentException("openingBalance must not be negative");
         }
@@ -76,11 +80,11 @@ public class AccountOpeningService {
         }
 
         Account account = new Account(request.accountNo(), request.customerName(),
-                TransactionService.hashIdNumber(request.idNumber()));
+                TransactionService.hashIdNumber(request.idNumber()), actorOutletId);
         Account saved = accountRepository.save(account);
 
         if (request.openingBalance() > 0) {
-            transactionService.post(TxnType.CASH_IN, saved.getAccountNo(), firstOutletCode(),
+            transactionService.post(TxnType.CASH_IN, saved.getAccountNo(), actorOutletCode(actorOutletId),
                     request.openingBalance(), 0L, "opening-" + saved.getAccountNo(), actor);
             saved = accountRepository.findByAccountNo(saved.getAccountNo()).orElseThrow();
         }
@@ -90,11 +94,9 @@ public class AccountOpeningService {
         return saved;
     }
 
-    private String firstOutletCode() {
-        return outletRepository.findAll().stream()
-                .findFirst()
+    private String actorOutletCode(Long actorOutletId) {
+        return outletRepository.findById(actorOutletId)
                 .map(Outlet::getCode)
-                .orElseThrow(() -> new BusinessRuleException(
-                        "No outlet exists yet; create an outlet before opening accounts"));
+                .orElseThrow(() -> new BusinessRuleException("Actor outlet is unavailable"));
     }
 }

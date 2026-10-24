@@ -49,17 +49,20 @@ public class TransactionService {
     private final AccountRepository accountRepository;
     private final OutletRepository outletRepository;
     private final AuditService auditService;
+    private final ActorOutletPolicy actorOutletPolicy;
     private final TransactionTemplate postingTransaction;
 
     public TransactionService(TxnTransactionRepository txnRepository,
                               AccountRepository accountRepository,
                               OutletRepository outletRepository,
                               AuditService auditService,
+                              ActorOutletPolicy actorOutletPolicy,
                               PlatformTransactionManager transactionManager) {
         this.txnRepository = txnRepository;
         this.accountRepository = accountRepository;
         this.outletRepository = outletRepository;
         this.auditService = auditService;
+        this.actorOutletPolicy = actorOutletPolicy;
         this.postingTransaction = new TransactionTemplate(transactionManager);
         this.postingTransaction.setIsolationLevel(Isolation.READ_COMMITTED.value());
     }
@@ -90,6 +93,7 @@ public class TransactionService {
 
         TxnTransaction replay = txnRepository.findByIdempotencyKey(effectiveKey).orElse(null);
         if (replay != null) {
+            requireTransactionAccess(actor, replay);
             return acceptReplay(replay, type, accountNo, outletCode, amount, fee, actor);
         }
 
@@ -104,6 +108,7 @@ public class TransactionService {
             if (winner == null) {
                 throw ex;
             }
+            requireTransactionAccess(actor, winner);
             return acceptReplay(winner, type, accountNo, outletCode, amount, fee, actor);
         }
         return posted;
@@ -125,18 +130,26 @@ public class TransactionService {
         return replay;
     }
 
+    private void requireTransactionAccess(Authentication actor, TxnTransaction txn) {
+        actorOutletPolicy.requireTransactionRead(actor, txn.getOutletId());
+        Account account = accountRepository.findById(txn.getAccountId())
+                .orElseThrow(() -> new NotFoundException("Transaction account not found"));
+        actorOutletPolicy.requireAccountRead(actor, account);
+    }
+
     private TxnTransaction postNew(TxnType type, String accountNo, String outletCode,
                                   long amount, long fee, String effectiveKey, Authentication actor) {
 
         Account account = accountRepository.findByAccountNo(accountNo)
                 .orElseThrow(() -> new NotFoundException("Account not found: " + accountNo));
 
+        Outlet outlet = outletRepository.findByCode(outletCode)
+                .orElseThrow(() -> new NotFoundException("Outlet not found: " + outletCode));
+        actorOutletPolicy.requirePostingOwnership(actor, account, outlet.getId());
+
         if (!"ACTIVE".equals(account.getStatus())) {
             throw new IllegalStateException("Account is not active: " + accountNo);
         }
-
-        Outlet outlet = outletRepository.findByCode(outletCode)
-                .orElseThrow(() -> new NotFoundException("Outlet not found: " + outletCode));
 
         long totalDebit = Math.addExact(amount, fee);
         if (!type.isCredit() && account.getBalance() < totalDebit) {
@@ -177,9 +190,11 @@ public class TransactionService {
     }
 
     @Transactional(readOnly = true)
-    public TxnTransaction findByRef(String txnRef) {
-        return txnRepository.findByTxnRef(txnRef)
+    public TxnTransaction findByRef(String txnRef, Authentication actor) {
+        TxnTransaction txn = txnRepository.findByTxnRef(txnRef)
                 .orElseThrow(() -> new NotFoundException("Transaction not found: " + txnRef));
+        requireTransactionAccess(actor, txn);
+        return txn;
     }
 
     /**
