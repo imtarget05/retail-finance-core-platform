@@ -6,21 +6,24 @@ reconciliation as described in docs/apply-2027-backend-demo.md first.
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
+import re
 import subprocess
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 CORE = "http://127.0.0.1:8080"
 RECONCILIATION = "http://127.0.0.1:8000"
 OUTLET = "OUTLET-HCM-01"
+OUTPUT = Path(__file__).resolve().parents[1] / "demo-results" / "backend-application.json"
+TXN_REF_PATTERN = re.compile(r"^TXN-[A-Za-z0-9-]{1,64}$")
 
 
 def call(method: str, url: str, *, token: str = "", body: dict | None = None) -> tuple[int, object]:
@@ -37,6 +40,8 @@ def call(method: str, url: str, *, token: str = "", body: dict | None = None) ->
             return exc.code, json.loads(exc.read())
         except ValueError:
             return exc.code, {"error": "non-JSON HTTP error"}
+    except OSError as exc:
+        raise ConnectionError(f"{method} {url}: {exc}") from exc
 
 
 def require(status: int, expected: int, label: str) -> None:
@@ -61,7 +66,7 @@ def wait_for(url: str, timeout: int = 120) -> None:
             status, _ = call("GET", url)
             if status == 200:
                 return
-        except (URLError, TimeoutError):
+        except (OSError, TimeoutError):
             pass
         time.sleep(2)
     raise TimeoutError(f"service did not become healthy: {url}")
@@ -79,6 +84,12 @@ def balance(token: str, account: str) -> int:
     status, body = call("GET", f"{CORE}/api/v1/accounts/{account}", token=token)
     require(status, 200, "account balance")
     return int(body["balance"])
+
+
+def transaction_path(ref: str) -> str:
+    if not TXN_REF_PATTERN.fullmatch(ref):
+        raise ValueError("core returned an invalid transaction reference")
+    return quote(ref, safe="")
 
 
 def run() -> dict:
@@ -127,9 +138,12 @@ def run() -> dict:
         raise AssertionError("refused debit changed balance")
 
     refs = (first["txnRef"], raced[0][1]["txnRef"])
+    for ref in refs:
+        transaction_path(ref)
     audits = []
     for ref in refs:
-        status, rows = call("GET", f"{CORE}/api/v1/audit/target/Transaction/{ref}", token=ops_token)
+        status, rows = call("GET", f"{CORE}/api/v1/audit/target/Transaction/{transaction_path(ref)}",
+                            token=ops_token)
         require(status, 200, "audit lookup")
         if not any(row.get("action") == "TXN_SETTLED" for row in rows):
             raise AssertionError(f"missing TXN_SETTLED audit for {ref}")
@@ -170,16 +184,13 @@ def run() -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, default=Path("demo-results/backend-application.json"))
-    args = parser.parse_args()
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     try:
         report = {"status": "passed", **run()}
     except Exception as exc:
         report = {"status": "failed", "error": str(exc),
                   "timestamp_utc": datetime.now(timezone.utc).isoformat()}
-    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    OUTPUT.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
     return 0 if report["status"] == "passed" else 1
 

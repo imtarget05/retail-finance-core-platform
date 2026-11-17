@@ -89,6 +89,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Test demo start-up retry
+        run: python3 -m unittest scripts.test_backend_application_demo
+
       - name: Start seeded MySQL and Java core
         run: docker compose up -d --build mysql core
 
@@ -99,14 +102,11 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null
-          ops_token=$(curl -fsS http://127.0.0.1:8080/api/v1/auth/login \
-            -H 'Content-Type: application/json' \
-            -d '{"username":"ops","password":"ChangeMe123!"}' \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
+          ops_token=$(python3 -c 'from scripts.backend_application_demo import login; print(login("ops", "ChangeMe123!"))')
           CORE_SERVICE_TOKEN="$ops_token" docker compose up -d --build reconciliation
 
       - name: Exercise the transaction and reconciliation APIs
-        run: python3 scripts/backend_application_demo.py --output demo-results/backend-application.json
+        run: python3 scripts/backend_application_demo.py
 
       - name: Record Compose state
         if: always()
