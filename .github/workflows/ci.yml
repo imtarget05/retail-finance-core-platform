@@ -77,3 +77,50 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short
+
+  backend-application-demo:
+    name: Disposable Compose transaction and reconciliation demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Test demo start-up retry
+        run: python3 -m unittest scripts.test_backend_application_demo
+
+      - name: Start seeded MySQL and Java core
+        run: docker compose up -d --build mysql core
+
+      - name: Start reconciliation with a scoped demo OPS token
+        run: |
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null
+          ops_token=$(python3 -c 'from scripts.backend_application_demo import login; print(login("ops", "ChangeMe123!"))')
+          CORE_SERVICE_TOKEN="$ops_token" docker compose up -d --build reconciliation
+
+      - name: Exercise the transaction and reconciliation APIs
+        run: python3 scripts/backend_application_demo.py
+
+      - name: Record Compose state
+        if: always()
+        run: |
+          mkdir -p demo-results
+          docker compose ps > demo-results/compose-ps.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-application-demo
+          path: demo-results/
+          retention-days: 30
+
+      - name: Remove disposable demo stack
+        if: always()
+        run: docker compose down -v

@@ -15,6 +15,8 @@ python -m pytest tests/ -q
 
 `mvn verify` runs unit tests and MySQL 8 integration tests through Testcontainers. CI's `Integration tests (real MySQL 8)` job is the recorded database-backed run. The Python suite ran locally on 2026-11-17: **17 passed**. These commands are the full gate; using `mvn test` alone omits the MySQL integration tests. An interactive Compose run is described in the root README, but the current evidence is from automated tests.
 
+For a disposable full API walkthrough, the `Disposable Compose transaction and reconciliation demo` CI job builds MySQL, the Java core and the Python reconciliation service. It runs `python3 scripts/backend_application_demo.py` and uploads `backend-application.json` with the commit SHA and observed statuses. To reproduce locally, start MySQL and core with `docker compose up -d --build mysql core`, log in as the seeded `ops` user, start reconciliation with `CORE_SERVICE_TOKEN` set to that OPS JWT, then run the script. The workflow contains the exact startup commands. Use only the seeded local Compose stack; the script posts synthetic transactions and assumes its own fresh time window.
+
 ## Walkthrough and direct assertions
 
 1. **Repeated request:** `TransactionServiceIT.idempotentReplayMovesMoneyOnce` posts the same key twice, asserts one transaction reference and one balance movement. `idempotencyKeyCannotBeReusedForDifferentAmount` rejects a changed amount and leaves one ledger row.
