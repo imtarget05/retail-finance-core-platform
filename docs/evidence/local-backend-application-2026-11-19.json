@@ -1,0 +1,31 @@
+{
+  "status": "passed",
+  "scope": "disposable_local_compose_synthetic",
+  "git_sha": "5c61e728cc907c6f897645385d7d991b08c85578",
+  "timestamp_utc": "2026-11-19T08:54:56.999078+00:00",
+  "run_id": "363623078b84",
+  "account_no": "APPLY-363623078b84",
+  "first_ref": "TXN-2026-11-19-8532296",
+  "concurrent_ref": "TXN-2026-11-19-4727215",
+  "initial_balance": 0,
+  "final_balance": 120000,
+  "replay_same_reference": true,
+  "changed_payload_http_status": 409,
+  "concurrent_statuses": [
+    200,
+    200
+  ],
+  "refused_debit_http_status": 422,
+  "audit_row_counts": [
+    2,
+    2
+  ],
+  "balanced_reconciliation": {
+    "MATCHED": 2
+  },
+  "mismatch_reconciliation": {
+    "AMOUNT_MISMATCH": 1,
+    "MATCHED": 1
+  },
+  "elapsed_seconds": 3.701
+}

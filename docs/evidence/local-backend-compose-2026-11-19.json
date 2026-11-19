@@ -1,0 +1,20 @@
+[
+  {
+    "service": "core",
+    "image": "retail-finance-portfolio-demo-core",
+    "state": "running",
+    "health": "healthy"
+  },
+  {
+    "service": "mysql",
+    "image": "mysql:8.0",
+    "state": "running",
+    "health": "healthy"
+  },
+  {
+    "service": "reconciliation",
+    "image": "retail-finance-portfolio-demo-reconciliation",
+    "state": "running",
+    "health": "starting"
+  }
+]

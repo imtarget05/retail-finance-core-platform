@@ -17,6 +17,8 @@ python -m pytest tests/ -q
 
 For a disposable full API walkthrough, the `Disposable Compose transaction and reconciliation demo` CI job builds MySQL, the Java core and the Python reconciliation service. It runs `python3 scripts/backend_application_demo.py` and uploads `backend-application.json` with the commit SHA and observed statuses. To reproduce locally, start MySQL and core with `docker compose up -d --build mysql core`, log in as the seeded `ops` user, start reconciliation with `CORE_SERVICE_TOKEN` set to that OPS JWT, then run the script. The workflow contains the exact startup commands. Use only the seeded local Compose stack; the script posts synthetic transactions and assumes its own fresh time window.
 
+On Apple Silicon, use `-f docker-compose.yml -f docker-compose.apple-silicon.yml` for every Compose command. The Java runtime base image currently resolves only for `linux/amd64`; this override runs the Java core under Docker emulation while MySQL and Python run as native `linux/arm64`. The local 2026-11-19 run and cleanup are recorded in [the evidence bundle](evidence/local-backend-application-2026-11-19.md). This architecture workaround does not change the transaction logic or the CI Ubuntu path.
+
 ## Walkthrough and direct assertions
 
 1. **Repeated request:** `TransactionServiceIT.idempotentReplayMovesMoneyOnce` posts the same key twice, asserts one transaction reference and one balance movement. `idempotencyKeyCannotBeReusedForDifferentAmount` rejects a changed amount and leaves one ledger row.
