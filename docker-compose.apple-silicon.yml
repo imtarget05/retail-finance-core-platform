@@ -1,0 +1,9 @@
+# Local Apple Silicon demo: the Java runtime base image is amd64-only.
+# MySQL and Python run natively on arm64; Java core uses Docker emulation.
+services:
+  mysql:
+    platform: linux/arm64
+  core:
+    platform: linux/amd64
+  reconciliation:
+    platform: linux/arm64
