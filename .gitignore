@@ -27,3 +27,6 @@ htmlcov/
 .env
 .env.*
 !.env.example
+
+# Disposable local demo output; curated evidence lives in docs/evidence/.
+/demo-results/
